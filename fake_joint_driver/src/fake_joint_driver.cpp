@@ -97,8 +97,6 @@ FakeJointDriver::FakeJointDriver(const rclcpp::Node::SharedPtr& node)
   act_vel.resize(joint_names_.size());
   act_eff.resize(joint_names_.size());
   op_mode.resize(joint_names_.size());
-  joint_state_handles_.resize(joint_names_.size());
-  joint_command_handles_.resize(joint_names_.size());
   joint_mode_handles_.resize(joint_names_.size());
 
   // Set start position
@@ -115,19 +113,17 @@ FakeJointDriver::FakeJointDriver(const rclcpp::Node::SharedPtr& node)
   }
 
   // Create joint_state_interface
+  const std::vector<std::string> interface_names = {"position", "velocity", "effort"};
   for (int i = 0; i < joint_names_.size(); i++)
   {
     RCLCPP_DEBUG_STREAM(LOGGER, "joint[" << i << "]:" << joint_names_[i]);
-    // Connect and register the joint_state_interface
-    joint_state_handles_[i] =
-        hardware_interface::JointStateHandle(joint_names_[i], &act_dis[i], &act_vel[i], &act_eff[i]);
-    if (register_joint_state_handle(&joint_state_handles_[i]) != hardware_interface::return_type::OK)
-      throw std::runtime_error("unable to register " + joint_state_handles_[i].get_name());
 
-    joint_command_handles_[i] = hardware_interface::JointCommandHandle(joint_names_[i], &cmd_dis[i]);
-    if (register_joint_command_handle(&joint_command_handles_[i]) != hardware_interface::return_type::OK)
-    {
-      throw std::runtime_error("unable to register " + joint_command_handles_[i].get_name());
+    for (const auto & interface_name : interface_names){
+      if (register_joint(joint_names_[i], interface_name, act_dis[i]) != hardware_interface::return_type::OK)
+        throw std::runtime_error("unable to register " + interface_name + joint_names_[i]);
+
+      if (register_joint(joint_names_[i], interface_name + "_command", act_dis[i]) != hardware_interface::return_type::OK)
+        throw std::runtime_error("unable to register " + interface_name + "_command" + joint_names_[i]);
     }
 
     joint_mode_handles_[i] = hardware_interface::OperationModeHandle(joint_names_[i], &op_mode[i]);
@@ -148,5 +144,13 @@ FakeJointDriver::~FakeJointDriver()
 void FakeJointDriver::update(void)
 {
   // only do loopback
-  act_dis = cmd_dis;
+  for (const auto & joint_name : joint_names_)
+  {
+    auto pos_handle = std::make_shared<hardware_interface::JointHandle>(joint_name, "position");
+    auto pos_cmd_handle = std::make_shared<hardware_interface::JointHandle>(joint_name, "position_command");
+    get_joint_handle(*pos_handle);
+    get_joint_handle(*pos_cmd_handle);
+
+    pos_handle->set_value(pos_cmd_handle->get_value());
+  }
 }
